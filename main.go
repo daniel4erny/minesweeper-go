@@ -109,6 +109,10 @@ func renderMines(mines [][]string, s tcell.Screen, currPos playerPos) {
 				style = style.Foreground(tcell.ColorGreen)
 			}
 
+			if val == "#"{
+				style = style.Foreground(tcell.ColorGray)
+			}
+
 			if Y == currPos.Y_pos && X == currPos.X_pos {
 				style = style.Underline(true).Bold(true)
 			}
@@ -119,22 +123,24 @@ func renderMines(mines [][]string, s tcell.Screen, currPos playerPos) {
 	}
 }
 
-func renderStatus(currPos playerPos, n int, time int, remainingMines int, s tcell.Screen){
+func renderStatus(currPos playerPos, n int, time int, remainingMines int, s tcell.Screen, game_status string){
 	pos := fmt.Sprintf("POS: X: %d Y: %d", currPos.X_pos, currPos.Y_pos)
-	s.PutStr(n+5, 0, pos)
+	s.PutStr((2*n)+5, 0, pos)
 	timestr := fmt.Sprintf("TIME: %d", time)
-	s.PutStr(n+5, 1, timestr)
+	s.PutStr((2*n)+5, 1, timestr)
 	remainingMinesStr := fmt.Sprintf("REMAINING MINES: %d", remainingMines)
-	s.PutStr(n+5, 2, remainingMinesStr)
+	s.PutStr((2*n)+5, 2, remainingMinesStr)
+	status := fmt.Sprintf("STATUS: %s", game_status)
+	s.PutStr((2*n)+5, 3, status)
 }
 
-func movePlayer(ev string, currPos *playerPos){
+func movePlayer(ev string, currPos *playerPos, n int){
 	if ev == "UP"{
 		if currPos.Y_pos > 0{
 			currPos.Y_pos -= 1
 		} 
 	} else if ev == "DOWN"{
-		if currPos.Y_pos < 10{
+		if currPos.Y_pos < n-1{
 			currPos.Y_pos += 1
 		}
 	} else if ev == "LEFT"{
@@ -142,14 +148,14 @@ func movePlayer(ev string, currPos *playerPos){
 			currPos.X_pos -= 1
 		}
 	} else if ev == "RIGHT"{
-		if currPos.X_pos < 10{
+		if currPos.X_pos < n-1{
 			currPos.X_pos += 1
 		}
 	}
 }
 
 func flagMine(mines [][]string, currPos playerPos, remainNumber *int){
-	if *remainNumber == 0{
+	if *remainNumber == 0 && mines[currPos.Y_pos][currPos.X_pos] != "F"{
 		return
 	}
 	if mines[currPos.Y_pos][currPos.X_pos] == "F"{
@@ -158,6 +164,76 @@ func flagMine(mines [][]string, currPos playerPos, remainNumber *int){
 	} else {
 		mines[currPos.Y_pos][currPos.X_pos] = "F"
 		*remainNumber -= 1
+	}
+}
+
+func evalShowMine(mines_hidden *[][]string, mines_to_show *[][]string, currPos playerPos, game_status *string) {
+	if *game_status == "LOST" {
+		return
+	}
+
+	hidden := *mines_hidden
+	shown := *mines_to_show
+
+	height := len(hidden)
+	if height == 0 {
+		return
+	}
+	width := len(hidden[0])
+
+	startY := currPos.Y_pos
+	startX := currPos.X_pos
+
+	if shown[startY][startX] == "F" {
+		return
+	}
+
+	if hidden[startY][startX] == "M" {
+		*game_status = "LOST"
+		shown[startY][startX] = "M"
+		return
+	}
+
+	if shown[startY][startX] != "?" {
+		return
+	}
+
+	if hidden[startY][startX] != "" && hidden[startY][startX] != "#" {
+		shown[startY][startX] = hidden[startY][startX]
+		return
+	}
+
+	queue := []playerPos{currPos}
+
+	directions := []playerPos{
+		{-1, -1}, {-1, 0}, {-1, 1},
+		{0, -1},           {0, 1},
+		{1, -1},  {1, 0},  {1, 1},
+	}
+
+	for len(queue) > 0 {
+		curr := queue[0]
+		queue = queue[1:]
+
+		cY, cX := curr.Y_pos, curr.X_pos
+		if shown[cY][cX] != "?" {
+			continue
+		}
+		if hidden[cY][cX] == "" || hidden[cY][cX] == "#" {
+			shown[cY][cX] = "#"
+		} else {
+			shown[cY][cX] = hidden[cY][cX]
+		}
+		if hidden[cY][cX] == "" || hidden[cY][cX] == "#" {
+			for _, dir := range directions {
+				nY, nX := cY+dir.Y_pos, cX+dir.X_pos
+				if nY >= 0 && nY < height && nX >= 0 && nX < width {
+					if shown[nY][nX] == "?" {
+						queue = append(queue, playerPos{Y_pos: nY, X_pos: nX})
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -171,10 +247,10 @@ func main(){
 		mine_count = 10
 		map_size = 8
 	} else if mode == "normal"{
-		mine_count = 40
+		mine_count = 20
 		map_size = 16
 	} else if mode == "expert"{
-		mine_count = 99
+		mine_count = 60
 		map_size = 21
 	} else {
 		fmt.Print("mine count: ")
@@ -190,6 +266,7 @@ func main(){
 			log.Panic("ty jsi blbej lol")
 		}
 	}
+	game_status := "PlAYING"
 
 	remaining_mines := mine_count
 
@@ -226,7 +303,7 @@ func main(){
 
 	for {
 		renderMines(mines_to_show, screen, currPos)
-		renderStatus(currPos, map_size, 67, remaining_mines, screen)
+		renderStatus(currPos, map_size, 67, remaining_mines, screen, game_status)
 		screen.Show()
 		ev := screen.PollEvent()
 		switch ev := ev.(type) {
@@ -235,13 +312,13 @@ func main(){
 				case tcell.KeyEscape, tcell.KeyCtrlC:
 					return
 				case tcell.KeyUp:
-					movePlayer("UP", &currPos)
+					movePlayer("UP", &currPos, map_size)
 				case tcell.KeyDown:
-					movePlayer("DOWN", &currPos)
+					movePlayer("DOWN", &currPos, map_size)
 				case tcell.KeyRight:
-					movePlayer("RIGHT", &currPos)
+					movePlayer("RIGHT", &currPos, map_size)
 				case tcell.KeyLeft:
-					movePlayer("LEFT", &currPos)
+					movePlayer("LEFT", &currPos, map_size)
 				case tcell.KeyRune:
 					switch ev.Rune(){
 						case 'R', 'r':
@@ -254,11 +331,16 @@ func main(){
 									mines_to_show[Y][X] = "?"
 								}
 							}
+							game_status = "PLAYING"
 
 						case 'f', 'F':
 							flagMine(mines_to_show, currPos, &remaining_mines)
+
+						case ' ':
+							evalShowMine(&mines_hidden, &mines_to_show, currPos, &game_status)
 				}
 			}
 		}
+		screen.Clear()
 	}
 }
