@@ -1,0 +1,16 @@
+pkgbase = minesweeper-go-git
+	pkgdesc = Terminal-based Minesweeper game written in Go
+	pkgver = r5.c6df0a0
+	pkgrel = 1
+	url = https://github.com/daniel4erny/minesweeper-go
+	arch = x86_64
+	arch = aarch64
+	license = Unlicense
+	makedepends = go
+	makedepends = git
+	provides = minesweeper-go
+	conflicts = minesweeper-go
+	source = minesweeper-go-git::git+https://github.com/daniel4erny/minesweeper-go.git
+	sha256sums = SKIP
+
+pkgname = minesweeper-go-git
