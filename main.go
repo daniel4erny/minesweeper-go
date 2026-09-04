@@ -5,6 +5,8 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"sync"
+	"time"
 
 	"math/rand/v2"
 
@@ -14,6 +16,48 @@ import (
 type playerPos struct {
 	X_pos int
 	Y_pos int
+}
+
+type BackgroundTimer struct {
+	mu        sync.Mutex
+	startTime time.Time
+	duration  time.Duration
+	running   bool
+}
+
+func (t *BackgroundTimer) Start() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.running {
+		return
+	}
+
+	t.startTime = time.Now()
+	t.running = true
+}
+
+func (t *BackgroundTimer) Stop() time.Duration {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if !t.running {
+		return t.duration
+	}
+
+	t.duration += time.Since(t.startTime)
+	t.running = false
+	return t.duration
+}
+
+func (t *BackgroundTimer) Elapsed() time.Duration {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if !t.running {
+		return t.duration
+	}
+	return t.duration + time.Since(t.startTime)
 }
 
 func popRandom(s *[]string) string{
@@ -123,10 +167,10 @@ func renderMines(mines [][]string, s tcell.Screen, currPos playerPos) {
 	}
 }
 
-func renderStatus(currPos playerPos, n int, time int, remainingMines int, s tcell.Screen, game_status string){
+func renderStatus(currPos playerPos, n int, remainingMines int, s tcell.Screen, game_status string, time time.Duration){
 	pos := fmt.Sprintf("POS: X: %d Y: %d", currPos.X_pos, currPos.Y_pos)
 	s.PutStr((2*n)+5, 0, pos)
-	timestr := fmt.Sprintf("TIME: %d", time)
+	timestr := fmt.Sprintf("TIME: %s", time.String())
 	s.PutStr((2*n)+5, 1, timestr)
 	remainingMinesStr := fmt.Sprintf("REMAINING MINES: %d", remainingMines)
 	s.PutStr((2*n)+5, 2, remainingMinesStr)
@@ -154,21 +198,53 @@ func movePlayer(ev string, currPos *playerPos, n int){
 	}
 }
 
-func flagMine(mines [][]string, currPos playerPos, remainNumber *int){
+func flagMine(mines_ptr *[][]string, currPos playerPos, remainNumber *int, game_status *string, mines_hidden_ptr *[][]string){
+	mines := (*mines_ptr)
+	mines_hidden := (*mines_hidden_ptr)
+
+	if *game_status == "WON" || *game_status == "LOST"{
+		return 
+	}
 	if *remainNumber == 0 && mines[currPos.Y_pos][currPos.X_pos] != "F"{
 		return
 	}
 	if mines[currPos.Y_pos][currPos.X_pos] == "F"{
 		mines[currPos.Y_pos][currPos.X_pos] = "?"
 		*remainNumber += 1
-	} else {
+	} else if mines[currPos.Y_pos][currPos.X_pos] == "?"{
 		mines[currPos.Y_pos][currPos.X_pos] = "F"
 		*remainNumber -= 1
+	}
+
+	if *remainNumber != 0{
+		return
+	}
+
+	won := true
+
+	for Y := range mines{
+		for X := range mines[Y]{
+			if mines_hidden[Y][X] == "M" && mines[Y][X] != "F"{
+				won = false
+			} 
+		}
+	}
+
+	if won{
+		*game_status ="WON"
+		for Y := range mines{
+			for X := range mines[Y]{
+				if mines_hidden[Y][X] == "M"{
+					mines_hidden[Y][X] = "F"
+				} 
+			}
+		}
+		*mines_ptr = mines_hidden
 	}
 }
 
 func evalShowMine(mines_hidden *[][]string, mines_to_show *[][]string, currPos playerPos, game_status *string) {
-	if *game_status == "LOST" {
+	if *game_status == "WON" || *game_status == "LOST" {
 		return
 	}
 
@@ -190,7 +266,7 @@ func evalShowMine(mines_hidden *[][]string, mines_to_show *[][]string, currPos p
 
 	if hidden[startY][startX] == "M" {
 		*game_status = "LOST"
-		shown[startY][startX] = "M"
+		*mines_to_show = hidden
 		return
 	}
 
@@ -244,10 +320,10 @@ func main(){
 	fmt.Print("Type type of game ('begginer', 'normal', 'expert') press enter to make custom game: ") 
 	fmt.Scan(&mode)
 	if mode == "begginer"{
-		mine_count = 10
-		map_size = 8
+		mine_count = 8
+		map_size = 9
 	} else if mode == "normal"{
-		mine_count = 20
+		mine_count = 16
 		map_size = 16
 	} else if mode == "expert"{
 		mine_count = 60
@@ -300,10 +376,12 @@ func main(){
 	currPos := playerPos{X_pos: 0, Y_pos: 0}
 
 	screen.Clear()
+	timer := &BackgroundTimer{}
+	timer.Start()
 
 	for {
 		renderMines(mines_to_show, screen, currPos)
-		renderStatus(currPos, map_size, 67, remaining_mines, screen, game_status)
+		renderStatus(currPos, map_size, remaining_mines, screen, game_status, timer.Elapsed())
 		screen.Show()
 		ev := screen.PollEvent()
 		switch ev := ev.(type) {
@@ -332,9 +410,17 @@ func main(){
 								}
 							}
 							game_status = "PLAYING"
+							remaining_mines = mine_count
+							currPos = playerPos{
+								X_pos: 0,
+								Y_pos: 0,
+							}
 
 						case 'f', 'F':
-							flagMine(mines_to_show, currPos, &remaining_mines)
+							flagMine(&mines_to_show, currPos, &remaining_mines, &game_status, &mines_hidden)
+							if game_status == "WON"{
+								timer.Stop()
+							}
 
 						case ' ':
 							evalShowMine(&mines_hidden, &mines_to_show, currPos, &game_status)
