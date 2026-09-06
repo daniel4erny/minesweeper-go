@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"slices"
 
 	"math/rand/v2"
 
@@ -176,6 +177,10 @@ func renderStatus(currPos playerPos, n int, remainingMines int, s tcell.Screen, 
 	s.PutStr((2*n)+5, 2, remainingMinesStr)
 	status := fmt.Sprintf("STATUS: %s", game_status)
 	s.PutStr((2*n)+5, 3, status)
+	controls := "Press space to show, F to flag mine and R to restart"
+	s.PutStr(0, (n), controls)
+	controls2 := "use arrows to move the _ on the board"
+	s.PutStr(0, (n)+1, controls2)
 }
 
 func movePlayer(ev string, currPos *playerPos, n int){
@@ -248,6 +253,8 @@ func evalShowMine(mines_hidden *[][]string, mines_to_show *[][]string, currPos p
 		return
 	}
 
+	nums := []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}
+
 	hidden := *mines_hidden
 	shown := *mines_to_show
 
@@ -268,6 +275,47 @@ func evalShowMine(mines_hidden *[][]string, mines_to_show *[][]string, currPos p
 		*game_status = "LOST"
 		*mines_to_show = hidden
 		return
+	}
+
+	if slices.Contains(nums, shown[startY][startX]){
+		directions := []playerPos{
+			{-1, -1}, {-1, 0}, {-1, 1},
+			{0, -1},           {0, 1},
+			{1, -1},  {1, 0},  {1, 1},
+		}
+		flagCount := 0
+
+		for _, direction := range directions{
+			if startY + direction.Y_pos >= len(*mines_to_show) || startY + direction.Y_pos < 0 || startX + direction.X_pos < 0 || startX + direction.X_pos >= len(*mines_to_show){
+				continue
+			} else if shown[startY + direction.Y_pos][startX + direction.X_pos] == "F"{
+				flagCount += 1
+			}
+		}
+		val, err := strconv.Atoi(shown[startY][startX])
+		if err != nil{
+			log.Panic("docela nahovno")
+		}
+		if flagCount != val{
+			return
+		}
+
+		for _, direction := range directions{
+			if startY + direction.Y_pos >= len(*mines_to_show) || startY + direction.Y_pos < 0 || startX + direction.X_pos < 0 || startX + direction.X_pos >= len(*mines_to_show){
+				continue
+			} else {
+				if shown[startY + direction.Y_pos][startX + direction.X_pos] == "F"{
+					continue
+				}
+
+				if hidden[startY + direction.Y_pos][startX + direction.X_pos] == "M"{
+					*mines_to_show = hidden
+					*game_status = "LOST"
+					break
+				}
+				shown[startY + direction.Y_pos][startX + direction.X_pos] = hidden[startY + direction.Y_pos][startX + direction.X_pos]
+			}
+		}
 	}
 
 	if shown[startY][startX] != "?" {
