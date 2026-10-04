@@ -51,6 +51,15 @@ func (t *BackgroundTimer) Stop() time.Duration {
 	return t.duration
 }
 
+func (t *BackgroundTimer) Reset() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.duration = 0
+	t.startTime = time.Now()
+	t.running = true
+}
+
 func (t *BackgroundTimer) Elapsed() time.Duration {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -102,7 +111,7 @@ func resetMines(n int, m int) [][]string{
 		for X := range res{
 			if res[Y][X] == "M"{
 				continue
-			} 
+			}
 
 			mine_count = 0
 			for _, val := range counts{
@@ -168,10 +177,15 @@ func renderMines(mines [][]string, s tcell.Screen, currPos playerPos) {
 	}
 }
 
-func renderStatus(currPos playerPos, n int, remainingMines int, s tcell.Screen, game_status string, time time.Duration){
+func formatTime(d time.Duration) string{
+	ms := d.Milliseconds()
+	return fmt.Sprintf("%02d:%02d.%03d", ms/60000, (ms/1000)%60, ms%1000)
+}
+
+func renderStatus(currPos playerPos, n int, remainingMines int, s tcell.Screen, game_status string, elapsed time.Duration){
 	pos := fmt.Sprintf("POS: X: %d Y: %d", currPos.X_pos, currPos.Y_pos)
 	s.PutStr((2*n)+5, 0, pos)
-	timestr := fmt.Sprintf("TIME: %s", time.String())
+	timestr := fmt.Sprintf("TIME: %s", formatTime(elapsed))
 	s.PutStr((2*n)+5, 1, timestr)
 	remainingMinesStr := fmt.Sprintf("REMAINING MINES: %d", remainingMines)
 	s.PutStr((2*n)+5, 2, remainingMinesStr)
@@ -187,7 +201,7 @@ func movePlayer(ev string, currPos *playerPos, n int){
 	if ev == "UP"{
 		if currPos.Y_pos > 0{
 			currPos.Y_pos -= 1
-		} 
+		}
 	} else if ev == "DOWN"{
 		if currPos.Y_pos < n-1{
 			currPos.Y_pos += 1
@@ -208,7 +222,7 @@ func flagMine(mines_ptr *[][]string, currPos playerPos, remainNumber *int, game_
 	mines_hidden := (*mines_hidden_ptr)
 
 	if *game_status == "WON" || *game_status == "LOST"{
-		return 
+		return
 	}
 	if *remainNumber == 0 && mines[currPos.Y_pos][currPos.X_pos] != "F"{
 		return
@@ -231,7 +245,7 @@ func flagMine(mines_ptr *[][]string, currPos playerPos, remainNumber *int, game_
 		for X := range mines[Y]{
 			if mines_hidden[Y][X] == "M" && mines[Y][X] != "F"{
 				won = false
-			} 
+			}
 		}
 	}
 
@@ -241,7 +255,7 @@ func flagMine(mines_ptr *[][]string, currPos playerPos, remainNumber *int, game_
 			for X := range mines[Y]{
 				if mines_hidden[Y][X] == "M"{
 					mines_hidden[Y][X] = "F"
-				} 
+				}
 			}
 		}
 		*mines_ptr = mines_hidden
@@ -365,7 +379,7 @@ func main(){
 	var mode string
 	var mine_count int
 	var map_size int
-	fmt.Print("Type type of game ('begginer', 'normal', 'expert') press enter to make custom game: ") 
+	fmt.Print("Type type of game ('begginer', 'normal', 'expert') press enter to make custom game: ")
 	fmt.Scan(&mode)
 	if mode == "begginer"{
 		mine_count = 8
@@ -427,6 +441,15 @@ func main(){
 	timer := &BackgroundTimer{}
 	timer.Start()
 
+	// wake up PollEvent periodically so the timer redraws on its own
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	go func(){
+		for range ticker.C{
+			screen.PostEvent(tcell.NewEventInterrupt(nil))
+		}
+	}()
+
 	for {
 		renderMines(mines_to_show, screen, currPos)
 		renderStatus(currPos, map_size, remaining_mines, screen, game_status, timer.Elapsed())
@@ -463,6 +486,7 @@ func main(){
 								X_pos: 0,
 								Y_pos: 0,
 							}
+							timer.Reset()
 
 						case 'f', 'F':
 							flagMine(&mines_to_show, currPos, &remaining_mines, &game_status, &mines_hidden)
@@ -472,6 +496,9 @@ func main(){
 
 						case ' ':
 							evalShowMine(&mines_hidden, &mines_to_show, currPos, &game_status)
+							if game_status == "LOST"{
+								timer.Stop()
+							}
 				}
 			}
 		}
